@@ -17,10 +17,11 @@ const schema = object({
 });
 
 export default function BookForm() {
-  const { id }   = useParams();
-  const isEdit   = Boolean(id);
+  const { id } = useParams();
+  const isEdit = Boolean(id);
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+
   const {
     register,
     handleSubmit,
@@ -29,9 +30,6 @@ export default function BookForm() {
     formState: { errors },
   } = useForm({ resolver: yupResolver(schema) });
 
-  /* -------------------------------------------------
-     1. Carrega dados existentes para edição
-  ------------------------------------------------- */
   useEffect(() => {
     if (!isEdit) return;
     setLoading(true);
@@ -46,90 +44,71 @@ export default function BookForm() {
       })
       .catch(() => toast.error('Falha ao carregar livro.'))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, isEdit, setValue]);
 
-  /* -------------------------------------------------
-     2. Auto-preenchimento via ISBN
-  ------------------------------------------------- */
   const isbnValue = watch('isbn');
 
-useEffect(() => {
-  if (!isbnValue) return;
+  useEffect(() => {
+    if (!isbnValue) return;
 
-  // remove tudo que não for dígito
-  const cleanIsbn = isbnValue.replace(/\D/g, '');
+    const cleanIsbn = isbnValue.replace(/\D/g, '');
+    if (!/^\d{10}(\d{3})?$/.test(cleanIsbn)) return;
 
-  // só busca se tiver 10 OU 13 dígitos
-  if (!/^\d{10}(\d{3})?$/.test(cleanIsbn)) return;
+    const controller = new AbortController();
 
-  const controller = new AbortController();
+    const fetchBook = async () => {
+      try {
+        const { data } = await axios.get(
+          `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`,
+          { signal: controller.signal }
+        );
 
-  const fetchBook = async () => {
-    try {
-      const { data } = await axios.get(
-        `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`,
-        { signal: controller.signal }
-      );
+        const item = data.items?.[0];
+        if (!item) {
+          toast.info('ISBN não encontrado na Google Books');
+          return;
+        }
 
-      const item = data.items?.[0];
-      if (!item) {
-        toast.info('ISBN não encontrado na Google Books');
-        return;
+        const info = item.volumeInfo;
+        if (!watch('titulo') && info.title) setValue('titulo', info.title);
+        if (!watch('autor') && info.authors?.length)
+          setValue('autor', info.authors[0]);
+
+        if (!watch('dataPublicacao') && info.publishedDate) {
+          const parts = info.publishedDate.split('-');
+          const iso =
+            parts.length === 1
+              ? `${parts[0]}-01-01`
+              : parts.length === 2
+              ? `${parts[0]}-${parts[1]}-01`
+              : info.publishedDate;
+          setValue('dataPublicacao', iso);
+        }
+
+        toast.success('Dados do livro importados!');
+      } catch (err) {
+        if (!axios.isCancel(err)) toast.error('Erro ao buscar ISBN');
       }
+    };
 
-      const info = item.volumeInfo;
+    fetchBook();
+    return () => controller.abort();
+  }, [isbnValue, setValue, watch]);
 
-      // preenche apenas se os campos estiverem vazios
-      if (!watch('titulo') && info.title) setValue('titulo', info.title);
-      if (!watch('autor') && info.authors?.length)
-        setValue('autor', info.authors[0]);
-
-      if (!watch('dataPublicacao') && info.publishedDate) {
-        // publishedDate pode vir como "yyyy" ou "yyyy-MM-dd"
-        const parts = info.publishedDate.split('-');
-        const iso =
-          parts.length === 1
-            ? `${parts[0]}-01-01`
-            : parts.length === 2
-            ? `${parts[0]}-${parts[1]}-01`
-            : info.publishedDate;
-        setValue('dataPublicacao', iso); // formato aceito pelo input date
-      }
-
-      toast.success('Dados do livro importados!');
-    } catch (err) {
-      if (!axios.isCancel(err)) toast.error('Erro ao buscar ISBN');
-    }
-  };
-
-  fetchBook();
-  return () => controller.abort();
-}, [isbnValue]);
-
-  /* -------------------------------------------------
-     3. Submit
-  ------------------------------------------------- */
   const onSubmit = async (payload) => {
     try {
-      if (isEdit) {
-        await updateBook(id, payload);
-      } else {
-        await createBook(payload);
-      }
+      isEdit ? await updateBook(id, payload) : await createBook(payload);
       toast.success('Livro salvo com sucesso!');
       navigate('/');
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
       toast.error('Erro ao salvar livro.');
     }
   };
 
-  /* -------------------------------------------------
-     4. Render
-  ------------------------------------------------- */
   return (
     <div className="container mx-auto p-4 max-w-lg">
-      <h1 className="text-2xl font-bold mb-4">
+      <h1 className="text-2xl font-bold mb-6 text-center">
         {isEdit ? 'Editar Livro' : 'Novo Livro'}
       </h1>
 
@@ -137,48 +116,84 @@ useEffect(() => {
         <p>Carregando…</p>
       ) : (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {/* ISBN primeiro para auto-preencher */}
           <div>
             <label className="block mb-1">ISBN *</label>
-            <input {...register('isbn')} className="w-full border p-2 rounded" />
-            {errors.isbn && <p className="text-red-600 text-sm">{errors.isbn.message}</p>}
+            <input
+              {...register('isbn')}
+              className="w-full bg-slate-800 border border-slate-600 p-2 rounded"
+            />
+            {errors.isbn && (
+              <p className="text-red-600 text-sm">{errors.isbn.message}</p>
+            )}
           </div>
 
           <div>
             <label className="block mb-1">Título *</label>
-            <input {...register('titulo')} className="w-full border p-2 rounded" />
-            {errors.titulo && <p className="text-red-600 text-sm">{errors.titulo.message}</p>}
+            <input
+              {...register('titulo')}
+              className="w-full bg-slate-800 border border-slate-600 p-2 rounded"
+            />
+            {errors.titulo && (
+              <p className="text-red-600 text-sm">{errors.titulo.message}</p>
+            )}
           </div>
 
           <div>
             <label className="block mb-1">Autor *</label>
-            <input {...register('autor')} className="w-full border p-2 rounded" />
-            {errors.autor && <p className="text-red-600 text-sm">{errors.autor.message}</p>}
+            <input
+              {...register('autor')}
+              className="w-full bg-slate-800 border border-slate-600 p-2 rounded"
+            />
+            {errors.autor && (
+              <p className="text-red-600 text-sm">{errors.autor.message}</p>
+            )}
           </div>
 
           <div>
             <label className="block mb-1">Data de Publicação *</label>
-            <input type="date" {...register('dataPublicacao')} className="w-full border p-2 rounded" />
+            <input
+              type="date"
+              {...register('dataPublicacao')}
+              className="w-full bg-slate-800 border border-slate-600 p-2 rounded"
+            />
             {errors.dataPublicacao && (
-              <p className="text-red-600 text-sm">{errors.dataPublicacao.message}</p>
+              <p className="text-red-600 text-sm">
+                {errors.dataPublicacao.message}
+              </p>
             )}
           </div>
 
           <div>
             <label className="block mb-1">Quantidade em Estoque *</label>
-            <input type="number" {...register('quantidadeEstoque')} className="w-full border p-2 rounded" />
+            <input
+              type="number"
+              {...register('quantidadeEstoque')}
+              className="w-full bg-slate-800 border border-slate-600 p-2 rounded"
+            />
             {errors.quantidadeEstoque && (
-              <p className="text-red-600 text-sm">{errors.quantidadeEstoque.message}</p>
+              <p className="text-red-600 text-sm">
+                {errors.quantidadeEstoque.message}
+              </p>
             )}
           </div>
 
           <div>
             <label className="block mb-1">Preço (R$) *</label>
-            <input type="number" step="0.01" {...register('preco')} className="w-full border p-2 rounded" />
-            {errors.preco && <p className="text-red-600 text-sm">{errors.preco.message}</p>}
+            <input
+              type="number"
+              step="0.01"
+              {...register('preco')}
+              className="w-full bg-slate-800 border border-slate-600 p-2 rounded"
+            />
+            {errors.preco && (
+              <p className="text-red-600 text-sm">{errors.preco.message}</p>
+            )}
           </div>
 
-          <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">
+          <button
+            type="submit"
+            className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded"
+          >
             Salvar
           </button>
         </form>
