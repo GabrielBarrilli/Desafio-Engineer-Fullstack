@@ -1,7 +1,5 @@
 ## 📚 Livraria Barrilli – Guia End-to-End
 
-*(por um jovem programador que já quebrou a cabeça para você não precisar)*
-
 ---
 ### Stack & Pré-requisitos
 
